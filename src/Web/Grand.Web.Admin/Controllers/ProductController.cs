@@ -6,26 +6,24 @@ using Grand.Business.Core.Interfaces.Common.Localization;
 using Grand.Business.Core.Interfaces.Common.Security;
 using Grand.Business.Core.Interfaces.ExportImport;
 using Grand.Business.Core.Interfaces.Storage;
-using Grand.Domain.Permissions;
 using Grand.Domain.Catalog;
 using Grand.Domain.Common;
 using Grand.Domain.Media;
-using Grand.Infrastructure;
-using Grand.Web.Admin.Extensions;
-using Grand.Web.Admin.Extensions.Mapping;
-using Grand.Web.Admin.Interfaces;
-using Grand.Web.Admin.Models.Catalog;
-using Grand.Web.Admin.Models.Orders;
+using Grand.Domain.Permissions;
+using Grand.SharedKernel.Extensions;
+using Grand.Web.AdminShared.Extensions.Mapping;
+using Grand.Web.AdminShared.Interfaces;
+using Grand.Web.AdminShared.Models.Catalog;
+using Grand.Web.AdminShared.Models.Orders;
 using Grand.Web.Common.DataSource;
 using Grand.Web.Common.Extensions;
 using Grand.Web.Common.Filters;
+using Grand.Web.Common.Helpers;
 using Grand.Web.Common.Localization;
 using Grand.Web.Common.Security.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.StaticFiles;
-using Grand.Web.Common.Helpers;
-using Grand.SharedKernel.Extensions;
 
 namespace Grand.Web.Admin.Controllers;
 
@@ -38,21 +36,17 @@ public class ProductController : BaseAdminController
         IProductViewModelService productViewModelService,
         IProductService productService,
         IInventoryManageService inventoryManageService,
-        IContextAccessor contextAccessor,
-        IGroupService groupService,
         ILanguageService languageService,
         ITranslationService translationService,
         IProductReservationService productReservationService,
         IAuctionService auctionService,
         IDateTimeService dateTimeService,
-        IPermissionService permissionService, 
+        IPermissionService permissionService,
         IEnumTranslationService enumTranslationService)
     {
         _productViewModelService = productViewModelService;
         _productService = productService;
         _inventoryManageService = inventoryManageService;
-        _contextAccessor = contextAccessor;
-        _groupService = groupService;
         _languageService = languageService;
         _translationService = translationService;
         _productReservationService = productReservationService;
@@ -69,8 +63,6 @@ public class ProductController : BaseAdminController
     private readonly IProductViewModelService _productViewModelService;
     private readonly IProductService _productService;
     private readonly IInventoryManageService _inventoryManageService;
-    private readonly IContextAccessor _contextAccessor;
-    private readonly IGroupService _groupService;
     private readonly ILanguageService _languageService;
     private readonly ITranslationService _translationService;
     private readonly IProductReservationService _productReservationService;
@@ -78,18 +70,10 @@ public class ProductController : BaseAdminController
     private readonly IDateTimeService _dateTimeService;
     private readonly IPermissionService _permissionService;
     private readonly IEnumTranslationService _enumTranslationService;
-    
+
     #endregion
 
     #region Methods
-
-    protected async Task<(bool allow, string message)> CheckAccessToProduct(Product product)
-    {
-        if (product == null) return (false, "Product not exists");
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !(!product.LimitedToStores || (product.Stores.Contains(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId) && product.LimitedToStores)))
-            return (false, "This is not your product");
-        return (true, null);
-    }
 
     #region Product list / create / edit / delete
 
@@ -129,14 +113,6 @@ public class ProductController : BaseAdminController
         var product = await _productService.GetProductBySku(sku);
         if (product != null)
         {
-            if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
-            {
-                if (!product.LimitedToStores || (product.Stores.Contains(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId) &&
-                                                 product.LimitedToStores))
-                    return RedirectToAction("Edit", new { id = product.Id });
-                return RedirectToAction("List", "Product");
-            }
-
             return RedirectToAction("Edit", "Product", new { id = product.Id });
         }
 
@@ -180,20 +156,6 @@ public class ProductController : BaseAdminController
         if (product == null)
             //No product found with the specified id
             return RedirectToAction("List");
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
-        {
-            if (!product.LimitedToStores || (product.LimitedToStores &&
-                                             product.Stores.Contains(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId) &&
-                                             product.Stores.Count > 1))
-            {
-                Warning(_translationService.GetResource("Admin.Catalog.Products.Permissions"));
-            }
-            else
-            {
-                if (!product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-                    return RedirectToAction("List");
-            }
-        }
 
         var model = product.ToModel(_dateTimeService);
         //model.Ticks = product.UpdatedOnUtc.Ticks;
@@ -222,9 +184,6 @@ public class ProductController : BaseAdminController
         if (product == null)
             //No product found with the specified id
             return RedirectToAction("List");
-
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return RedirectToAction("Edit", new { id = product.Id });
 
         if (model.Ticks != product.Ticks)
         {
@@ -262,9 +221,6 @@ public class ProductController : BaseAdminController
             //No product found with the specified id
             return RedirectToAction("List");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return RedirectToAction("Edit", new { id = product.Id });
-
         if (ModelState.IsValid)
         {
             await _productViewModelService.DeleteProduct(product);
@@ -294,13 +250,6 @@ public class ProductController : BaseAdminController
         try
         {
             var originalProduct = await _productService.GetProductById(copyModel.Id, true);
-            if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
-            {
-                originalProduct.LimitedToStores = true;
-                originalProduct.Stores.Clear();
-                originalProduct.Stores.Add(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId);
-            }
-
             var newProduct = await copyProductService.CopyProduct(originalProduct,
                 copyModel.Name, copyModel.Published);
 
@@ -403,10 +352,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
         var productCategoriesModel = await _productViewModelService.PrepareProductCategoryModel(product);
         var gridModel = new DataSourceResult {
             Data = productCategoriesModel,
@@ -475,10 +420,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
         var productCollectionsModel = await _productViewModelService.PrepareProductCollectionModel(product);
         var gridModel = new DataSourceResult {
             Data = productCollectionsModel,
@@ -546,10 +487,6 @@ public class ProductController : BaseAdminController
     public async Task<IActionResult> RelatedProductList(DataSourceRequest command, string productId)
     {
         var product = await _productService.GetProductById(productId);
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
 
         var relatedProducts = product.RelatedProducts.OrderBy(x => x.DisplayOrder);
         var relatedProductsModel = new List<ProductModel.RelatedProductModel>();
@@ -644,10 +581,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
         var similarProducts = product.SimilarProducts.OrderBy(x => x.DisplayOrder);
         var similarProductsModel = new List<ProductModel.SimilarProductModel>();
         foreach (var x in similarProducts)
@@ -740,10 +673,6 @@ public class ProductController : BaseAdminController
     public async Task<IActionResult> BundleProductList(DataSourceRequest command, string productId)
     {
         var product = await _productService.GetProductById(productId);
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
 
         var bundleProducts = product.BundleProducts.OrderBy(x => x.DisplayOrder);
         var bundleProductsModel = new List<ProductModel.BundleProductModel>();
@@ -838,10 +767,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
         var crossSellProducts = product.CrossSellProduct;
         var crossSellProductsModel = new List<ProductModel.CrossSellProductModel>();
         foreach (var x in crossSellProducts)
@@ -925,10 +850,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
         var recommendedProductsModel = new List<ProductModel.RecommendedProductModel>();
         foreach (var x in product.RecommendedProduct)
             recommendedProductsModel.Add(new ProductModel.RecommendedProductModel {
@@ -1011,9 +932,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
         var associatedProducts = await _productService.GetAssociatedProducts(productId,
             showHidden: true);
         var associatedProductsModel = associatedProducts
@@ -1110,8 +1028,7 @@ public class ProductController : BaseAdminController
 
     #region Product pictures
 
-    [HttpPost]
-    [IgnoreAntiforgeryToken]
+    [HttpPost]    
     public async Task<IActionResult> ProductPictureAdd(
         IFormFileCollection files,
         Reference reference, string objectId,
@@ -1119,31 +1036,27 @@ public class ProductController : BaseAdminController
         [FromServices] MediaSettings mediaSettings)
     {
         if (!await _permissionService.Authorize(PermissionSystemName.Pictures))
-            return Json(new {
+            return Json(new
+            {
                 success = false,
                 message = "Access denied - picture permissions"
             });
 
         if (reference != Reference.Product || string.IsNullOrEmpty(objectId))
-            return Json(new {
+            return Json(new
+            {
                 success = false,
                 message = "Please save form before upload new pictures"
             });
 
         if (!files.Any())
-            return Json(new {
+            return Json(new
+            {
                 success = false,
                 message = "No files uploaded"
             });
 
         var product = await _productService.GetProductById(objectId);
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Json(new
-            {
-                success = false,
-                message = "Access denied - staff permissions"
-            });
-
         var values = new List<(string pictureUrl, string pictureId)>();
         foreach (var file in files)
         {
@@ -1176,10 +1089,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
         var productPicturesModel = await _productViewModelService.PrepareProductPicturesModel(product);
         var gridModel = new DataSourceResult {
             Data = productPicturesModel,
@@ -1195,10 +1104,6 @@ public class ProductController : BaseAdminController
         var product = await _productService.GetProductById(productId);
         if (product == null)
             return Content("Product not exist");
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return Content(permission.message);
 
         var pp = product.ProductPictures.FirstOrDefault(x => x.Id == id);
         if (pp == null)
@@ -1267,7 +1172,7 @@ public class ProductController : BaseAdminController
             (await specificationAttributeService.GetSpecificationAttributeById(attributeId))
             .SpecificationAttributeOptions.OrderBy(x => x.DisplayOrder);
         var result = (from o in options
-            select new { id = o.Id, name = o.Name }).ToList();
+                      select new { id = o.Id, name = o.Name }).ToList();
         return Json(result);
     }
 
@@ -1276,10 +1181,6 @@ public class ProductController : BaseAdminController
     public async Task<IActionResult> ProductSpecAttrList(DataSourceRequest command, string productId)
     {
         var product = await _productService.GetProductById(productId);
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
 
         var productrSpecsModel = await _productViewModelService.PrepareProductSpecificationAttributeModel(product);
         var gridModel = new DataSourceResult {
@@ -1295,10 +1196,6 @@ public class ProductController : BaseAdminController
         string productId, string id)
     {
         var product = await _productService.GetProductById(productId);
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return Content(permission.message);
 
         var model = new ProductModel.AddProductSpecificationAttributeModel {
             //default specs values
@@ -1393,16 +1290,9 @@ public class ProductController : BaseAdminController
 
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
         var model = new OrderListModel {
             ProductId = productId
         };
-
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
-            model.StoreId = _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId;
 
         var (orderModels, totalCount) =
             await orderViewModelService.PrepareOrderModel(model, command.Page, command.PageSize);
@@ -1424,16 +1314,8 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
-        var storeId = string.Empty;
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
-            storeId = _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId;
-
         var productReviews = await productReviewService.GetAllProductReviews("", null,
-            null, null, "", storeId, productId);
+            null, null, "", "", productId);
 
         var items = new List<ProductReviewModel>();
         foreach (var item in productReviews.PagedForCommand(command))
@@ -1569,10 +1451,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
         var items = new List<ProductModel.ProductPriceModel>();
         foreach (var item in product.ProductPrices)
             items.Add(new ProductModel.ProductPriceModel {
@@ -1685,10 +1563,6 @@ public class ProductController : BaseAdminController
     public async Task<IActionResult> TierPriceList(DataSourceRequest command, string productId)
     {
         var product = await _productService.GetProductById(productId);
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
 
         var tierPricesModel = await _productViewModelService.PrepareTierPriceModel(product);
         var gridModel = new DataSourceResult {
@@ -1804,10 +1678,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
         var attributesModel = await _productViewModelService.PrepareProductAttributeMappingModels(product);
         var gridModel = new DataSourceResult {
             Data = attributesModel,
@@ -1821,10 +1691,6 @@ public class ProductController : BaseAdminController
     public async Task<IActionResult> ProductAttributeMappingPopup(string productId, string productAttributeMappingId)
     {
         var product = await _productService.GetProductById(productId);
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return Content(permission.message);
 
         if (string.IsNullOrEmpty(productAttributeMappingId))
         {
@@ -1877,9 +1743,6 @@ public class ProductController : BaseAdminController
         if (productAttributeMapping == null)
             throw new ArgumentException("No product attribute mapping found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return ErrorForKendoGridJson(_translationService.GetResource("Admin.Catalog.Products.Permissions"));
-
         await productAttributeService.DeleteProductAttributeMapping(productAttributeMapping, product.Id);
         return new JsonResult("");
     }
@@ -1889,10 +1752,6 @@ public class ProductController : BaseAdminController
     public async Task<IActionResult> ProductAttributeValidationRulesPopup(string id, string productId)
     {
         var product = await _productService.GetProductById(productId);
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return Content(permission.message);
 
         var productAttributeMapping = product.ProductAttributeMappings.FirstOrDefault(x => x.Id == id);
         if (productAttributeMapping == null)
@@ -1936,10 +1795,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return Content(permission.message);
-
         var productAttributeMapping =
             product.ProductAttributeMappings.FirstOrDefault(x => x.Id == productAttributeMappingId);
         if (productAttributeMapping == null)
@@ -1964,9 +1819,6 @@ public class ProductController : BaseAdminController
         if (productAttributeMapping == null)
             return Content("No attribute value found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Content(_translationService.GetResource("Admin.Catalog.Products.Permissions"));
-
         await _productViewModelService.UpdateProductAttributeConditionModel(product, productAttributeMapping, model);
         return Content("");
     }
@@ -1989,10 +1841,7 @@ public class ProductController : BaseAdminController
         if (productAttributeMapping == null)
             throw new ArgumentException("No product attribute mapping found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !(!product.LimitedToStores || (product.Stores.Contains(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId) && product.LimitedToStores)))
-            return Content("This is not your product");
-        var productAttribute =
-            await productAttributeService.GetProductAttributeById(productAttributeMapping.ProductAttributeId);
+        var productAttribute = await productAttributeService.GetProductAttributeById(productAttributeMapping.ProductAttributeId);
         var model = new ProductModel.ProductAttributeValueListModel {
             ProductName = product.Name,
             ProductId = product.Id,
@@ -2009,10 +1858,6 @@ public class ProductController : BaseAdminController
         DataSourceRequest command)
     {
         var product = await _productService.GetProductById(productId);
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
 
         var productAttributeMapping =
             product.ProductAttributeMappings.FirstOrDefault(x => x.Id == productAttributeMappingId);
@@ -2034,10 +1879,6 @@ public class ProductController : BaseAdminController
         string productId)
     {
         var product = await _productService.GetProductById(productId);
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return Content(permission.message);
 
         var productAttributeMapping =
             product.ProductAttributeMappings.FirstOrDefault(x => x.Id == productAttributeMappingId);
@@ -2082,10 +1923,6 @@ public class ProductController : BaseAdminController
         string productAttributeMappingId)
     {
         var product = await _productService.GetProductById(productId);
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
 
         var pa = product.ProductAttributeMappings.FirstOrDefault(x => x.Id == productAttributeMappingId);
         if (pa == null)
@@ -2148,9 +1985,6 @@ public class ProductController : BaseAdminController
         if (pav == null)
             throw new ArgumentException("No product attribute value found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            throw new ArgumentException(_translationService.GetResource("Admin.Catalog.Products.Permissions"));
-
         if (ModelState.IsValid)
         {
             await productAttributeService.DeleteProductAttributeValue(pav, productId, pam);
@@ -2202,10 +2036,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
         var combinationsModel = await _productViewModelService.PrepareProductAttributeCombinationModel(product);
         var gridModel = new DataSourceResult {
             Data = combinationsModel,
@@ -2227,9 +2057,6 @@ public class ProductController : BaseAdminController
         if (combination == null)
             throw new ArgumentException("No product attribute combination found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Content(_translationService.GetResource("Admin.Catalog.Products.Permissions"));
-
         await productAttributeService.DeleteProductAttributeCombination(combination, productId);
         if (product.ManageInventoryMethodId == ManageInventoryMethod.ManageStockByAttributes)
         {
@@ -2248,10 +2075,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return Content(permission.message);
-
         var model = await _productViewModelService.PrepareProductAttributeCombinationModel(product, Id);
         await _productViewModelService.PrepareAddProductAttributeCombinationModel(model, product);
         return View(model);
@@ -2266,9 +2089,6 @@ public class ProductController : BaseAdminController
         if (product == null)
             //No product found with the specified id
             return RedirectToAction("List", "Product");
-
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Content(_translationService.GetResource("Admin.Catalog.Products.Permissions"));
 
         var warnings = await _productViewModelService.InsertOrUpdateProductAttributeCombinationPopup(product, model);
         if (!warnings.Any()) return Content("");
@@ -2286,9 +2106,6 @@ public class ProductController : BaseAdminController
         if (product == null)
             throw new ArgumentException("No product found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Content(_translationService.GetResource("Admin.Catalog.Products.Permissions"));
-
         await _productViewModelService.GenerateAllAttributeCombinations(product);
 
         return Json(new { Success = true });
@@ -2301,9 +2118,6 @@ public class ProductController : BaseAdminController
         var product = await _productService.GetProductById(productId);
         if (product == null)
             throw new ArgumentException("No product found with the specified id");
-
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            throw new ArgumentException(_translationService.GetResource("Admin.Catalog.Products.Permissions"));
 
         if (ModelState.IsValid)
         {
@@ -2331,10 +2145,6 @@ public class ProductController : BaseAdminController
     {
         var product = await _productService.GetProductById(productId);
 
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
-
         var tierPriceModel =
             await _productViewModelService.PrepareProductAttributeCombinationTierPricesModel(product,
                 productAttributeCombinationId);
@@ -2355,9 +2165,6 @@ public class ProductController : BaseAdminController
         if (product == null)
             throw new ArgumentException("No product found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Content("", _translationService.GetResource("Admin.Catalog.Products.Permissions"));
-
         var combination =
             product.ProductAttributeCombinations.FirstOrDefault(x => x.Id == productAttributeCombinationId);
         if (combination != null)
@@ -2376,11 +2183,7 @@ public class ProductController : BaseAdminController
         if (product == null)
             throw new ArgumentException("No product found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Content("", _translationService.GetResource("Admin.Catalog.Products.Permissions"));
-
-        var combination =
-            product.ProductAttributeCombinations.FirstOrDefault(x => x.Id == productAttributeCombinationId);
+        var combination = product.ProductAttributeCombinations.FirstOrDefault(x => x.Id == productAttributeCombinationId);
         if (combination != null)
             await _productViewModelService.UpdateProductAttributeCombinationTierPricesModel(product, combination,
                 model);
@@ -2397,11 +2200,7 @@ public class ProductController : BaseAdminController
         if (product == null)
             throw new ArgumentException("No product found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return ErrorForKendoGridJson(_translationService.GetResource("Admin.Catalog.Products.Permissions"));
-
-        var combination =
-            product.ProductAttributeCombinations.FirstOrDefault(x => x.Id == productAttributeCombinationId);
+        var combination = product.ProductAttributeCombinations.FirstOrDefault(x => x.Id == productAttributeCombinationId);
         if (combination != null)
         {
             var tierPrice = combination.TierPrices.FirstOrDefault(x => x.Id == id);
@@ -2424,10 +2223,6 @@ public class ProductController : BaseAdminController
     public async Task<IActionResult> ListReservations(DataSourceRequest command, string productId)
     {
         var product = await _productService.GetProductById(productId);
-
-        var permission = await CheckAccessToProduct(product);
-        if (!permission.allow)
-            return ErrorForKendoGridJson(permission.message);
 
         var reservations =
             await _productReservationService.GetProductReservationsByProductId(productId, null, null, command.Page - 1,
@@ -2459,9 +2254,6 @@ public class ProductController : BaseAdminController
         if (product == null)
             throw new ArgumentException("No product found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Json(new { errors = _translationService.GetResource("Admin.Catalog.Products.Permissions") });
-
         var reservations = await _productReservationService.GetProductReservationsByProductId(productId, null, null);
         if (reservations.Any())
             if (((product.IntervalUnitId == IntervalUnit.Minute || product.IntervalUnitId == IntervalUnit.Hour) &&
@@ -2469,7 +2261,8 @@ public class ProductController : BaseAdminController
                 (product.IntervalUnitId == IntervalUnit.Day &&
                  ((IntervalUnit)model.IntervalUnit == IntervalUnit.Minute ||
                   (IntervalUnit)model.IntervalUnit == IntervalUnit.Hour)))
-                return Json(new {
+                return Json(new
+                {
                     errors = _translationService.GetResource("Admin.Catalog.Products.Calendar.CannotChangeInterval")
                 });
 
@@ -2478,11 +2271,11 @@ public class ProductController : BaseAdminController
             var error = (Dictionary<string, Dictionary<string, object>>)ModelState.SerializeErrors();
             var s = "";
             foreach (var error1 in error)
-            foreach (var error2 in error1.Value)
-            {
-                var v = (string[])error2.Value;
-                s += v[0] + "\n";
-            }
+                foreach (var error2 in error1.Value)
+                {
+                    var v = (string[])error2.Value;
+                    s += v[0] + "\n";
+                }
 
             return Json(new { errors = s });
         }
@@ -2592,9 +2385,6 @@ public class ProductController : BaseAdminController
         if (product == null)
             throw new ArgumentException("No product found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Json(new { errors = _translationService.GetResource("Admin.Catalog.Products.Permissions") });
-
         var toDelete = await _productReservationService.GetProductReservationsByProductId(productId, true, null);
         foreach (var record in toDelete) await _productReservationService.DeleteProductReservation(record);
 
@@ -2607,9 +2397,6 @@ public class ProductController : BaseAdminController
         var product = await _productService.GetProductById(productId);
         if (product == null)
             throw new ArgumentException("No product found with the specified id");
-
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Json(new { errors = _translationService.GetResource("Admin.Catalog.Products.Permissions") });
 
         var toDelete =
             (await _productReservationService.GetProductReservationsByProductId(productId, true, null)).Where(x =>
@@ -2626,9 +2413,6 @@ public class ProductController : BaseAdminController
         var product = await _productService.GetProductById(model.ProductId);
         if (product == null)
             throw new ArgumentException("No product found with the specified id");
-
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return ErrorForKendoGridJson(_translationService.GetResource("Admin.Catalog.Products.Permissions"));
 
         var toDelete = await _productReservationService.GetProductReservation(model.ReservationId);
         if (toDelete != null)
@@ -2656,9 +2440,6 @@ public class ProductController : BaseAdminController
         if (product == null)
             throw new ArgumentException("No product found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Json(new { errors = _translationService.GetResource("Admin.Catalog.Products.Permissions") });
-
         var (bidModels, totalCount) =
             await _productViewModelService.PrepareBidMode(productId, command.Page, command.PageSize);
         var gridModel = new DataSourceResult {
@@ -2676,9 +2457,6 @@ public class ProductController : BaseAdminController
         if (product == null)
             throw new ArgumentException("No product found with the specified id");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) && !product.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
-            return Json(new DataSourceResult { Errors = _translationService.GetResource("Admin.Catalog.Products.Permissions") });
-
         var toDelete = await _auctionService.GetBid(model.BidId);
         if (toDelete != null)
         {
@@ -2689,8 +2467,7 @@ public class ProductController : BaseAdminController
                 return Json("");
             }
 
-            return Json(new DataSourceResult
-                { Errors = _translationService.GetResource("Admin.Catalog.Products.Bids.CantDeleteWithOrder") });
+            return Json(new DataSourceResult { Errors = _translationService.GetResource("Admin.Catalog.Products.Bids.CantDeleteWithOrder") });
         }
 
         return Json(new DataSourceResult { Errors = "Bid not exists" });

@@ -10,7 +10,7 @@ using Grand.Domain.Customers;
 using Grand.Domain.Orders;
 using Grand.Infrastructure;
 using Grand.Web.Admin.Extensions;
-using Grand.Web.Admin.Models.Home;
+using Grand.Web.AdminShared.Models.Home;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -53,7 +53,7 @@ public class HomeController : BaseAdminController
         var model = new DashboardActivityModel();
 
         var storeId = string.Empty;
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
+        if (await _groupService.IsStoreManager(_contextAccessor.WorkContext.CurrentCustomer))
             storeId = _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId;
 
         model.OrdersPending =
@@ -137,7 +137,7 @@ public class HomeController : BaseAdminController
         if (storeid != null)
             storeid = storeid.Trim();
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
+        if (await _groupService.IsStoreManager(_contextAccessor.WorkContext.CurrentCustomer))
             returnUrl = Url.Action("Index", "Home", new { area = Constants.AreaAdmin });
 
         var store = await _storeService.GetStoreById(storeid);
@@ -196,17 +196,9 @@ public class HomeController : BaseAdminController
         return Json(result);
     }
 
-    public async Task<IActionResult> AccessDenied()
+    public IActionResult AccessDenied()
     {
-        var currentCustomer = _contextAccessor.WorkContext.CurrentCustomer;
-        if (currentCustomer == null || await _groupService.IsGuest(currentCustomer))
-        {
-            _logger.LogInformation("Access denied to anonymous request");
-            return View();
-        }
-
-        _logger.LogInformation("Access denied to user #{CurrentCustomerEmail}", currentCustomer.Email);
-
+        _logger.LogInformation("Access denied");
         return View();
     }
 

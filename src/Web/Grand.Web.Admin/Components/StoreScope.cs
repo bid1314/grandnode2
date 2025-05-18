@@ -1,7 +1,7 @@
 ﻿using Grand.Business.Core.Interfaces.Common.Directory;
 using Grand.Business.Core.Interfaces.Common.Stores;
 using Grand.Infrastructure;
-using Grand.Web.Admin.Models.Settings;
+using Grand.Web.AdminShared.Models.Settings;
 using Grand.Web.Common.Components;
 using Grand.Web.Common.Helpers;
 using Grand.Web.Common.Models;
@@ -45,7 +45,7 @@ public class StoreScopeViewComponent : BaseAdminViewComponent
         if (allStores.Count < 2)
             return Content("");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
+        if (await _groupService.IsStoreManager(_contextAccessor.WorkContext.CurrentCustomer))
             allStores = allStores.Where(x => x.Id == _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId).ToList();
 
         var model = new StoreScopeModel();

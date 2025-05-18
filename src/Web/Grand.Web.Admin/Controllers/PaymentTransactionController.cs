@@ -4,11 +4,11 @@ using Grand.Business.Core.Interfaces.Checkout.Payments;
 using Grand.Business.Core.Interfaces.Common.Directory;
 using Grand.Business.Core.Interfaces.Common.Localization;
 using Grand.Business.Core.Queries.Checkout.Orders;
-using Grand.Domain.Permissions;
 using Grand.Domain.Payments;
+using Grand.Domain.Permissions;
 using Grand.Infrastructure;
 using Grand.SharedKernel;
-using Grand.Web.Admin.Models.Orders;
+using Grand.Web.AdminShared.Models.Orders;
 using Grand.Web.Common.DataSource;
 using Grand.Web.Common.Localization;
 using Grand.Web.Common.Security.Authorization;
@@ -28,7 +28,6 @@ public class PaymentTransactionController : BaseAdminController
         IPaymentTransactionService paymentTransactionService,
         IOrderService orderService,
         IContextAccessor contextAccessor,
-        IGroupService groupService,
         IDateTimeService dateTimeService,
         IMediator mediator,
         IEnumTranslationService enumTranslationService)
@@ -37,7 +36,6 @@ public class PaymentTransactionController : BaseAdminController
         _paymentTransactionService = paymentTransactionService;
         _orderService = orderService;
         _contextAccessor = contextAccessor;
-        _groupService = groupService;
         _dateTimeService = dateTimeService;
         _mediator = mediator;
         _enumTranslationService = enumTranslationService;
@@ -51,11 +49,10 @@ public class PaymentTransactionController : BaseAdminController
     private readonly IOrderService _orderService;
     private readonly ITranslationService _translationService;
     private readonly IContextAccessor _contextAccessor;
-    private readonly IGroupService _groupService;
     private readonly IDateTimeService _dateTimeService;
     private readonly IMediator _mediator;
     private readonly IEnumTranslationService _enumTranslationService;
-    
+
     #endregion Fields
 
     #region Methods
@@ -73,8 +70,7 @@ public class PaymentTransactionController : BaseAdminController
                 .ToList()
         };
         model.PaymentTransactionStatus.Insert(0,
-            new SelectListItem
-                { Text = _translationService.GetResource("Admin.Common.All"), Value = "-1", Selected = true });
+            new SelectListItem { Text = _translationService.GetResource("Admin.Common.All"), Value = "-1", Selected = true });
         return View(model);
     }
 
@@ -82,8 +78,6 @@ public class PaymentTransactionController : BaseAdminController
     [HttpPost]
     public async Task<IActionResult> List(DataSourceRequest command, PaymentTransactionListModel model)
     {
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
-            model.StoreId = _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId;
         DateTime? startDateValue = model.StartDate == null
             ? null
             : _dateTimeService.ConvertToUtcTime(model.StartDate.Value, _dateTimeService.CurrentTimeZone);
@@ -161,10 +155,6 @@ public class PaymentTransactionController : BaseAdminController
             //not found
             return RedirectToAction("List", "PaymentTransaction");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
-            return RedirectToAction("List", "PaymentTransaction");
-
         return RedirectToAction("Edit", "PaymentTransaction", new { id = paymentTransaction.Id });
     }
 
@@ -175,10 +165,6 @@ public class PaymentTransactionController : BaseAdminController
     {
         var paymentTransaction = await _paymentTransactionService.GetById(id);
         if (paymentTransaction == null)
-            return RedirectToAction("List", "PaymentTransaction");
-
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
             return RedirectToAction("List", "PaymentTransaction");
 
         var order = await _orderService.GetOrderByGuid(paymentTransaction.OrderGuid);
@@ -207,17 +193,12 @@ public class PaymentTransactionController : BaseAdminController
             //payment method buttons
             //model.CanCancelOrder = await _mediator.Send(new CanCancelOrderQuery() { Order = order });
             CanCapture = await _mediator.Send(new CanCaptureQuery { PaymentTransaction = paymentTransaction }),
-            CanMarkAsPaid = await _mediator.Send(new CanMarkPaymentTransactionAsPaidQuery
-                { PaymentTransaction = paymentTransaction }),
+            CanMarkAsPaid = await _mediator.Send(new CanMarkPaymentTransactionAsPaidQuery { PaymentTransaction = paymentTransaction }),
             CanRefund = await _mediator.Send(new CanRefundQuery { PaymentTransaction = paymentTransaction }),
-            CanRefundOffline = await _mediator.Send(new CanRefundOfflineQuery
-                { PaymentTransaction = paymentTransaction }),
-            CanPartiallyRefund = await _mediator.Send(new CanPartiallyRefundQuery
-                { PaymentTransaction = paymentTransaction, AmountToRefund = 0 }),
-            CanPartiallyRefundOffline = await _mediator.Send(new CanPartiallyRefundOfflineQuery
-                { PaymentTransaction = paymentTransaction, AmountToRefund = 0 }),
-            CanPartiallyPaidOffline = await _mediator.Send(new CanPartiallyPaidOfflineQuery
-                { PaymentTransaction = paymentTransaction, AmountToPaid = 0 }),
+            CanRefundOffline = await _mediator.Send(new CanRefundOfflineQuery { PaymentTransaction = paymentTransaction }),
+            CanPartiallyRefund = await _mediator.Send(new CanPartiallyRefundQuery { PaymentTransaction = paymentTransaction, AmountToRefund = 0 }),
+            CanPartiallyRefundOffline = await _mediator.Send(new CanPartiallyRefundOfflineQuery { PaymentTransaction = paymentTransaction, AmountToRefund = 0 }),
+            CanPartiallyPaidOffline = await _mediator.Send(new CanPartiallyPaidOfflineQuery { PaymentTransaction = paymentTransaction, AmountToPaid = 0 }),
             CanVoid = await _mediator.Send(new CanVoidQuery { PaymentTransaction = paymentTransaction }),
             CanVoidOffline = await _mediator.Send(new CanVoidOfflineQuery { PaymentTransaction = paymentTransaction }),
             MaxAmountToRefund = paymentTransaction.TransactionAmount - paymentTransaction.RefundedAmount,
@@ -234,10 +215,6 @@ public class PaymentTransactionController : BaseAdminController
     {
         var paymentTransaction = await _paymentTransactionService.GetById(id);
         if (paymentTransaction == null)
-            return RedirectToAction("List", "PaymentTransaction");
-
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
             return RedirectToAction("List", "PaymentTransaction");
 
         try
@@ -265,10 +242,6 @@ public class PaymentTransactionController : BaseAdminController
         if (paymentTransaction == null)
             return RedirectToAction("List", "PaymentTransaction");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
-            return RedirectToAction("List", "PaymentTransaction");
-
         try
         {
             await _mediator.Send(new MarkAsPaidCommand { PaymentTransaction = paymentTransaction });
@@ -288,10 +261,6 @@ public class PaymentTransactionController : BaseAdminController
     {
         var paymentTransaction = await _paymentTransactionService.GetById(id);
         if (paymentTransaction == null)
-            return RedirectToAction("List", "PaymentTransaction");
-
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
             return RedirectToAction("List", "PaymentTransaction");
 
         try
@@ -318,10 +287,6 @@ public class PaymentTransactionController : BaseAdminController
         if (paymentTransaction == null)
             return RedirectToAction("List", "PaymentTransaction");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
-            return RedirectToAction("List", "PaymentTransaction");
-
         try
         {
             await _mediator.Send(new RefundOfflineCommand { PaymentTransaction = paymentTransaction });
@@ -341,10 +306,6 @@ public class PaymentTransactionController : BaseAdminController
     {
         var paymentTransaction = await _paymentTransactionService.GetById(id);
         if (paymentTransaction == null)
-            return RedirectToAction("List", "PaymentTransaction");
-
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
             return RedirectToAction("List", "PaymentTransaction");
 
         try
@@ -371,10 +332,6 @@ public class PaymentTransactionController : BaseAdminController
         if (paymentTransaction == null)
             return RedirectToAction("List", "PaymentTransaction");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
-            return RedirectToAction("List", "PaymentTransaction");
-
         try
         {
             await _mediator.Send(new VoidOfflineCommand { PaymentTransaction = paymentTransaction });
@@ -395,10 +352,6 @@ public class PaymentTransactionController : BaseAdminController
         if (paymentTransaction == null)
             return RedirectToAction("List", "PaymentTransaction");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
-            return RedirectToAction("List", "PaymentTransaction");
-
         var model = new PaymentTransactionModel {
             Id = paymentTransaction.Id,
             MaxAmountToRefund = paymentTransaction.TransactionAmount - paymentTransaction.RefundedAmount,
@@ -416,10 +369,6 @@ public class PaymentTransactionController : BaseAdminController
         if (paymentTransaction == null)
             return RedirectToAction("List", "PaymentTransaction");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
-            return RedirectToAction("List", "PaymentTransaction");
-
         try
         {
             var amountToRefund = model.AmountToRefund;
@@ -432,11 +381,9 @@ public class PaymentTransactionController : BaseAdminController
 
             var errors = new List<string>();
             if (online)
-                errors = (await _mediator.Send(new PartiallyRefundCommand
-                    { PaymentTransaction = paymentTransaction, AmountToRefund = amountToRefund })).ToList();
+                errors = (await _mediator.Send(new PartiallyRefundCommand { PaymentTransaction = paymentTransaction, AmountToRefund = amountToRefund })).ToList();
             else
-                await _mediator.Send(new PartiallyRefundOfflineCommand
-                    { PaymentTransaction = paymentTransaction, AmountToRefund = amountToRefund });
+                await _mediator.Send(new PartiallyRefundOfflineCommand { PaymentTransaction = paymentTransaction, AmountToRefund = amountToRefund });
 
             if (errors.Count == 0)
             {
@@ -466,10 +413,6 @@ public class PaymentTransactionController : BaseAdminController
         if (paymentTransaction == null)
             return RedirectToAction("List", "PaymentTransaction");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
-            return RedirectToAction("List", "PaymentTransaction");
-
         var model = new PaymentTransactionModel {
             Id = paymentTransaction.Id,
             MaxAmountToPaid = paymentTransaction.TransactionAmount - paymentTransaction.PaidAmount,
@@ -487,10 +430,6 @@ public class PaymentTransactionController : BaseAdminController
         if (paymentTransaction == null)
             return RedirectToAction("List", "PaymentTransaction");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
-            return RedirectToAction("List", "PaymentTransaction");
-
         try
         {
             var amountToPaid = model.AmountToPaid;
@@ -501,8 +440,7 @@ public class PaymentTransactionController : BaseAdminController
             if (amountToPaid > maxAmountToPaid)
                 amountToPaid = maxAmountToPaid;
 
-            await _mediator.Send(new PartiallyPaidOfflineCommand
-                { PaymentTransaction = paymentTransaction, AmountToPaid = amountToPaid });
+            await _mediator.Send(new PartiallyPaidOfflineCommand { PaymentTransaction = paymentTransaction, AmountToPaid = amountToPaid });
 
             ViewBag.RefreshPage = true;
             return View(model);
@@ -523,9 +461,6 @@ public class PaymentTransactionController : BaseAdminController
         if (paymentTransaction == null)
             return RedirectToAction("List");
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer) &&
-            paymentTransaction.StoreId != _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId)
-            return RedirectToAction("List", "MerchandiseReturn");
         if (ModelState.IsValid)
         {
             await _paymentTransactionService.DeletePaymentTransaction(paymentTransaction);

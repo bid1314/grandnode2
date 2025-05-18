@@ -5,8 +5,8 @@ using Grand.Business.Core.Interfaces.Marketing.Newsletters;
 using Grand.Domain.Permissions;
 using Grand.Infrastructure;
 using Grand.SharedKernel.Extensions;
-using Grand.Web.Admin.Extensions.Mapping;
-using Grand.Web.Admin.Models.Messages;
+using Grand.Web.AdminShared.Extensions.Mapping;
+using Grand.Web.AdminShared.Models.Messages;
 using Grand.Web.Common.DataSource;
 using Grand.Web.Common.Extensions;
 using Grand.Web.Common.Security.Authorization;
@@ -122,7 +122,7 @@ public class NewsLetterSubscriptionController : BaseAdminController
                 break;
         }
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
+        if (await _groupService.IsStoreManager(_contextAccessor.WorkContext.CurrentCustomer))
             model.StoreId = _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId;
 
         var newsletterSubscriptions = await _newsLetterSubscriptionService.GetAllNewsLetterSubscriptions(
@@ -189,7 +189,7 @@ public class NewsLetterSubscriptionController : BaseAdminController
                 break;
         }
 
-        if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
+        if (await _groupService.IsStoreManager(_contextAccessor.WorkContext.CurrentCustomer))
             model.StoreId = _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId;
 
         var subscriptions = await _newsLetterSubscriptionService.GetAllNewsLetterSubscriptions(model.SearchEmail,

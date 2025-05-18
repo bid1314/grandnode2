@@ -5,8 +5,8 @@ using Grand.Business.Core.Interfaces.Common.Localization;
 using Grand.Domain.Permissions;
 using Grand.Domain.Seo;
 using Grand.Infrastructure;
-using Grand.Web.Admin.Extensions.Mapping;
-using Grand.Web.Admin.Models.Catalog;
+using Grand.Web.AdminShared.Extensions.Mapping;
+using Grand.Web.AdminShared.Models.Catalog;
 using Grand.Web.Common.DataSource;
 using Grand.Web.Common.Filters;
 using Grand.Web.Common.Security.Authorization;
@@ -160,7 +160,7 @@ public class SpecificationAttributeController : BaseAdminController
                     ? specificationAttribute.Name
                     : specificationAttribute.SeName, _seoSettings.ConvertNonWesternChars,
                 _seoSettings.AllowUnicodeCharsInUrls, _seoSettings.SeoCharConversion);
-            if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
+            if (await _groupService.IsStoreManager(_contextAccessor.WorkContext.CurrentCustomer))
                 model.Stores = [_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId];
             await _specificationAttributeService.InsertSpecificationAttribute(specificationAttribute);
 
@@ -211,7 +211,7 @@ public class SpecificationAttributeController : BaseAdminController
                     ? specificationAttribute.Name
                     : specificationAttribute.SeName, _seoSettings.ConvertNonWesternChars,
                 _seoSettings.AllowUnicodeCharsInUrls, _seoSettings.SeoCharConversion);
-            if (await _groupService.IsStaff(_contextAccessor.WorkContext.CurrentCustomer))
+            if (await _groupService.IsStoreManager(_contextAccessor.WorkContext.CurrentCustomer))
                 model.Stores = [_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId];
             await _specificationAttributeService.UpdateSpecificationAttribute(specificationAttribute);
 
