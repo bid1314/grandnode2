@@ -1,21 +1,36 @@
 ﻿using Grand.Business.Core.Extensions;
 using Grand.Business.Core.Interfaces.Catalog.Products;
 using Grand.Business.Core.Interfaces.Common.Localization;
+using Grand.Domain.Catalog;
 using Grand.Domain.Permissions;
 using Grand.Domain.Seo;
 using Grand.Infrastructure;
+using Grand.Web.AdminShared.Extensions;
 using Grand.Web.AdminShared.Extensions.Mapping;
 using Grand.Web.AdminShared.Models.Catalog;
 using Grand.Web.Common.DataSource;
 using Grand.Web.Common.Filters;
 using Grand.Web.Common.Security.Authorization;
+using Grand.Web.Store.Controllers;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Grand.Web.Admin.Controllers;
 
 [PermissionAuthorize(PermissionSystemName.SpecificationAttributes)]
-public class SpecificationAttributeController : BaseAdminController
+public class SpecificationAttributeController : BaseStoreController
 {
+
+    #region Fields
+
+    private readonly ISpecificationAttributeService _specificationAttributeService;
+    private readonly IProductService _productService;
+    private readonly ILanguageService _languageService;
+    private readonly ITranslationService _translationService;
+    private readonly IContextAccessor _contextAccessor;
+    private readonly SeoSettings _seoSettings;
+
+    #endregion Fields
+
     #region Constructors
 
     public SpecificationAttributeController(
@@ -43,17 +58,19 @@ public class SpecificationAttributeController : BaseAdminController
     [HttpPost]
     public async Task<IActionResult> UsedByProducts(DataSourceRequest command, string specificationAttributeId)
     {
-        var specyfication =
-            await _specificationAttributeService.GetSpecificationAttributeById(specificationAttributeId);
-        if (specyfication == null)
+        var specification = await _specificationAttributeService.GetSpecificationAttributeById(specificationAttributeId);
+        if (specification == null)
             throw new ArgumentException("No specification found with the specified id");
 
-        var searchStoreId = string.Empty;
+        if (!CheckAccessPermission(specification))
+            return RedirectToAction("List");
+
+        var searchStoreId = _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId;
 
         var specificationProducts = new List<SpecificationAttributeModel.UsedByProductModel>();
         var total = 0;
 
-        var searchspecificationOptions = specyfication.SpecificationAttributeOptions.Select(x => x.Id).ToList();
+        var searchspecificationOptions = specification.SpecificationAttributeOptions.Select(x => x.Id).ToList();
         if (searchspecificationOptions.Any())
         {
             var products = (await _productService.SearchProducts(
@@ -68,13 +85,11 @@ public class SpecificationAttributeController : BaseAdminController
 
             foreach (var item in products)
             {
-                var specOption =
-                    item.ProductSpecificationAttributes.FirstOrDefault(x =>
-                        x.SpecificationAttributeId == specificationAttributeId);
+                var specOption = item.ProductSpecificationAttributes.FirstOrDefault(x => x.SpecificationAttributeId == specificationAttributeId);
                 specificationProducts.Add(new SpecificationAttributeModel.UsedByProductModel {
                     Id = item.Id,
                     ProductName = item.Name,
-                    OptionName = specyfication.SpecificationAttributeOptions
+                    OptionName = specification.SpecificationAttributeOptions
                         .FirstOrDefault(x => x.Id == specOption?.SpecificationAttributeOptionId)?.Name,
                     Published = item.Published
                 });
@@ -90,16 +105,30 @@ public class SpecificationAttributeController : BaseAdminController
 
     #endregion
 
-    #region Fields
+    #region Helper Methods
 
-    private readonly ISpecificationAttributeService _specificationAttributeService;
-    private readonly IProductService _productService;
-    private readonly ILanguageService _languageService;
-    private readonly ITranslationService _translationService;
-    private readonly IContextAccessor _contextAccessor;
-    private readonly SeoSettings _seoSettings;
+    /// <summary>
+    /// Checks access permissions for a specification attribute and handles warnings
+    /// </summary>
+    /// <param name="specificationAttribute"></param>
+    /// <returns>True if access is allowed, false if access should be denied</returns>
+    private bool CheckAccessPermission(SpecificationAttribute specificationAttribute)
+    {
+        if (specificationAttribute == null)
+            return false;
 
-    #endregion Fields
+        if (!specificationAttribute.LimitedToStores || (specificationAttribute.LimitedToStores &&
+                specificationAttribute.Stores.Contains(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId) &&
+                specificationAttribute.Stores.Count > 1))
+        {
+            Warning(_translationService.GetResource("Admin.Catalog.SpecificationAttribute.Permissions"));
+            return true;
+        }
+
+        return specificationAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId);
+    }
+
+    #endregion
 
     #region Specification attributes
 
@@ -118,7 +147,8 @@ public class SpecificationAttributeController : BaseAdminController
     [PermissionAuthorizeAction(PermissionActionName.List)]
     public async Task<IActionResult> List(DataSourceRequest command)
     {
-        var specificationAttributes = await _specificationAttributeService.GetSpecificationAttributes(pageIndex: command.Page - 1, pageSize: command.PageSize);
+        var specificationAttributes = await _specificationAttributeService
+            .GetSpecificationAttributes(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId, command.Page - 1, command.PageSize);
         var gridModel = new DataSourceResult {
             Data = specificationAttributes.Select(x => x.ToModel()),
             Total = specificationAttributes.TotalCount
@@ -145,6 +175,8 @@ public class SpecificationAttributeController : BaseAdminController
     {
         if (ModelState.IsValid)
         {
+            model.Stores = [_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId];
+
             var specificationAttribute = model.ToEntity();
             specificationAttribute.SeName = SeoExtensions.GetSeName(
                 string.IsNullOrEmpty(specificationAttribute.SeName)
@@ -173,6 +205,9 @@ public class SpecificationAttributeController : BaseAdminController
             //No specification attribute found with the specified id
             return RedirectToAction("List");
 
+        if (!CheckAccessPermission(specificationAttribute))
+            return RedirectToAction("List");
+
         var model = specificationAttribute.ToModel();
         //locales
         await AddLocales(_languageService, model.Locales, (locale, languageId) =>
@@ -193,8 +228,13 @@ public class SpecificationAttributeController : BaseAdminController
             //No specification attribute found with the specified id
             return RedirectToAction("List");
 
+        if (!specificationAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
+            return RedirectToAction("List");
+
         if (ModelState.IsValid)
         {
+            model.Stores = [_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId];
+
             specificationAttribute = model.ToEntity(specificationAttribute);
             specificationAttribute.SeName = SeoExtensions.GetSeName(
                 string.IsNullOrEmpty(specificationAttribute.SeName)
@@ -235,6 +275,10 @@ public class SpecificationAttributeController : BaseAdminController
         if (specificationAttribute == null)
             //No specification attribute found with the specified id
             return RedirectToAction("List");
+
+        if (!specificationAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
+            return RedirectToAction("List");
+
         if (ModelState.IsValid)
         {
             await _specificationAttributeService.DeleteSpecificationAttribute(specificationAttribute);
@@ -256,9 +300,13 @@ public class SpecificationAttributeController : BaseAdminController
     [PermissionAuthorizeAction(PermissionActionName.Preview)]
     public async Task<IActionResult> OptionList(string specificationAttributeId, DataSourceRequest command)
     {
-        var options =
-            (await _specificationAttributeService.GetSpecificationAttributeById(specificationAttributeId))
-            .SpecificationAttributeOptions.OrderBy(x => x.DisplayOrder);
+        var specificationAttribute = await _specificationAttributeService.GetSpecificationAttributeById(specificationAttributeId);
+
+        if (!CheckAccessPermission(specificationAttribute))
+            return Json("");
+
+        var options = specificationAttribute.SpecificationAttributeOptions.OrderBy(x => x.DisplayOrder);
+
         var gridModel = new DataSourceResult {
             Data = options.Select(x =>
             {
@@ -290,11 +338,13 @@ public class SpecificationAttributeController : BaseAdminController
     [PermissionAuthorizeAction(PermissionActionName.Edit)]
     public async Task<IActionResult> OptionCreatePopup(SpecificationAttributeOptionModel model)
     {
-        var specificationAttribute =
-            await _specificationAttributeService.GetSpecificationAttributeById(model.SpecificationAttributeId);
+        var specificationAttribute = await _specificationAttributeService.GetSpecificationAttributeById(model.SpecificationAttributeId);
         if (specificationAttribute == null)
             //No specification attribute found with the specified id
             return RedirectToAction("List");
+
+        if (!specificationAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
+            return View("AccessDenied", _translationService.GetResource("Admin.Catalog.SpecificationAttribute.Permissions"));
 
         if (ModelState.IsValid)
         {
@@ -319,8 +369,16 @@ public class SpecificationAttributeController : BaseAdminController
     [PermissionAuthorizeAction(PermissionActionName.Edit)]
     public async Task<IActionResult> OptionEditPopup(string id)
     {
-        var sao = (await _specificationAttributeService.GetSpecificationAttributeByOptionId(id))
-            .SpecificationAttributeOptions.FirstOrDefault(x => x.Id == id);
+        var specificationAttribute = await _specificationAttributeService.GetSpecificationAttributeByOptionId(id);
+        if (specificationAttribute == null)
+            //No specification attribute found with the specified id
+            return RedirectToAction("List");
+
+        var sao = specificationAttribute.SpecificationAttributeOptions.FirstOrDefault(x => x.Id == id);
+
+        if (!CheckAccessPermission(specificationAttribute))
+            return View("AccessDenied", _translationService.GetResource("Admin.Catalog.SpecificationAttribute.Permissions"));
+
         if (sao == null)
             //No specification attribute option found with the specified id
             return RedirectToAction("List");
@@ -341,6 +399,10 @@ public class SpecificationAttributeController : BaseAdminController
     public async Task<IActionResult> OptionEditPopup(SpecificationAttributeOptionModel model)
     {
         var specificationAttribute = await _specificationAttributeService.GetSpecificationAttributeByOptionId(model.Id);
+
+        if (!specificationAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
+            return View("AccessDenied", _translationService.GetResource("Admin.Catalog.SpecificationAttribute.Permissions"));
+
         var sao = specificationAttribute.SpecificationAttributeOptions.FirstOrDefault(x => x.Id == model.Id);
         if (sao == null)
             //No specification attribute option found with the specified id
@@ -373,6 +435,10 @@ public class SpecificationAttributeController : BaseAdminController
         if (ModelState.IsValid)
         {
             var specificationAttribute = await _specificationAttributeService.GetSpecificationAttributeByOptionId(id);
+
+            if (!specificationAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
+                return View("AccessDenied", _translationService.GetResource("Admin.Catalog.SpecificationAttribute.Permissions"));
+ 
             var sao = specificationAttribute.SpecificationAttributeOptions.FirstOrDefault(x => x.Id == id);
             if (sao == null)
                 throw new ArgumentException("No specification attribute option found with the specified id");

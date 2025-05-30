@@ -1317,7 +1317,7 @@ public class ProductController : BaseStoreController
         ISpecificationAttributeService specificationAttributeService)
     {
         var availableSpecificationAttributes = new List<SelectListItem>();
-        foreach (var sa in await specificationAttributeService.GetSpecificationAttributes())
+        foreach (var sa in await specificationAttributeService.GetSpecificationAttributes(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
             availableSpecificationAttributes.Add(new SelectListItem {
                 Text = sa.Name,
                 Value = sa.Id

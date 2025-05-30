@@ -1,9 +1,11 @@
 ﻿using Grand.Business.Core.Extensions;
 using Grand.Business.Core.Interfaces.Catalog.Products;
 using Grand.Business.Core.Interfaces.Common.Localization;
+using Grand.Domain.Catalog;
 using Grand.Domain.Permissions;
 using Grand.Domain.Seo;
 using Grand.Infrastructure;
+using Grand.Web.AdminShared.Extensions;
 using Grand.Web.AdminShared.Extensions.Mapping;
 using Grand.Web.AdminShared.Models.Catalog;
 using Grand.Web.Common.DataSource;
@@ -11,10 +13,10 @@ using Grand.Web.Common.Filters;
 using Grand.Web.Common.Security.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Grand.Web.Admin.Controllers;
+namespace Grand.Web.Store.Controllers;
 
 [PermissionAuthorize(PermissionSystemName.ProductAttributes)]
-public class ProductAttributeController : BaseAdminController
+public class ProductAttributeController : BaseStoreController
 {
     #region Constructors
 
@@ -47,6 +49,31 @@ public class ProductAttributeController : BaseAdminController
 
     #endregion Fields
 
+    #region Helper Methods
+
+    /// <summary>
+    /// Checks access permissions for a product attribute and handles warnings
+    /// </summary>
+    /// <param name="productAttribute">Product attribute to check</param>
+    /// <returns>True if access is allowed, false if access should be denied</returns>
+    private bool CheckAccessPermission(ProductAttribute productAttribute)
+    {
+        if (productAttribute == null)
+            return false;
+
+        if (!productAttribute.LimitedToStores || (productAttribute.LimitedToStores &&
+                productAttribute.Stores.Contains(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId) &&
+                productAttribute.Stores.Count > 1))
+        {
+            Warning(_translationService.GetResource("Admin.Catalog.ProductAttribute.Permissions"));
+            return true;
+        }
+
+        return productAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId);
+    }
+
+    #endregion
+
     #region Methods
 
     #region Attribute list / create / edit / delete
@@ -66,7 +93,8 @@ public class ProductAttributeController : BaseAdminController
     [HttpPost]
     public async Task<IActionResult> List(DataSourceRequest command)
     {
-        var productAttributes = await _productAttributeService.GetAllProductAttributes(pageIndex: command.Page - 1, pageSize: command.PageSize);
+        var productAttributes = await _productAttributeService
+            .GetAllProductAttributes(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId, command.Page - 1, command.PageSize);
         var gridModel = new DataSourceResult {
             Data = productAttributes.Select(x => x.ToModel()),
             Total = productAttributes.TotalCount
@@ -92,6 +120,8 @@ public class ProductAttributeController : BaseAdminController
     {
         if (ModelState.IsValid)
         {
+            model.Stores = [_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId];
+
             var productAttribute = model.ToEntity();
             productAttribute.SeName = SeoExtensions.GetSeName(
                 string.IsNullOrEmpty(productAttribute.SeName) ? productAttribute.Name : productAttribute.SeName,
@@ -119,6 +149,9 @@ public class ProductAttributeController : BaseAdminController
             //No product attribute found with the specified id
             return RedirectToAction("List");
 
+        if (!CheckAccessPermission(productAttribute))
+            return RedirectToAction("List");
+
         var model = productAttribute.ToModel();
         //locales
         await AddLocales(_languageService, model.Locales, (locale, languageId) =>
@@ -140,8 +173,12 @@ public class ProductAttributeController : BaseAdminController
             //No product attribute found with the specified id
             return RedirectToAction("List");
 
+        if (!productAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
+            return RedirectToAction("Edit", new { id = productAttribute.Id });
+
         if (ModelState.IsValid)
         {
+            model.Stores = [_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId];
             productAttribute = model.ToEntity(productAttribute);
             productAttribute.SeName = SeoExtensions.GetSeName(
                 string.IsNullOrEmpty(productAttribute.SeName) ? productAttribute.Name : productAttribute.SeName,
@@ -182,6 +219,10 @@ public class ProductAttributeController : BaseAdminController
         if (productAttribute == null)
             //No product attribute found with the specified id
             return RedirectToAction("List");
+
+        if (!productAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
+            return RedirectToAction("List");
+
         if (ModelState.IsValid)
         {
             await _productAttributeService.DeleteProductAttribute(productAttribute);
@@ -202,11 +243,17 @@ public class ProductAttributeController : BaseAdminController
     [HttpPost]
     public async Task<IActionResult> UsedByProducts(DataSourceRequest command, string productAttributeId)
     {
+        var productAttribute = await _productAttributeService.GetProductAttributeById(productAttributeId);
+
+        if (!CheckAccessPermission(productAttribute))
+            return RedirectToAction("List");
+
         var orders = await _productService.GetProductsByProductAttributeId(
             productAttributeId,
-            "",
+            _contextAccessor.WorkContext.CurrentCustomer.StaffStoreId,
             command.Page - 1,
             command.PageSize);
+
         var gridModel = new DataSourceResult {
             Data = orders.Select(x => new ProductAttributeModel.UsedByProductModel {
                 Id = x.Id,
@@ -227,8 +274,12 @@ public class ProductAttributeController : BaseAdminController
     public async Task<IActionResult> PredefinedProductAttributeValueList(string productAttributeId,
         DataSourceRequest command)
     {
-        var values = (await _productAttributeService.GetProductAttributeById(productAttributeId))
-            .PredefinedProductAttributeValues;
+        var productAttribute = await _productAttributeService.GetProductAttributeById(productAttributeId);
+
+        if (!CheckAccessPermission(productAttribute))
+            return View("AccessDenied", _translationService.GetResource("Admin.Catalog.ProductAttribute.Permissions"));
+
+        var values = productAttribute.PredefinedProductAttributeValues;
         var gridModel = new DataSourceResult {
             Data = values.Select(x => x.ToModel()),
             Total = values.Count
@@ -244,6 +295,9 @@ public class ProductAttributeController : BaseAdminController
         var productAttribute = await _productAttributeService.GetProductAttributeById(productAttributeId);
         if (productAttribute == null)
             throw new ArgumentException("No product attribute found with the specified id");
+
+        if (!productAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
+            return View("AccessDenied", _translationService.GetResource("Admin.Catalog.ProductAttribute.Permissions"));
 
         var model = new PredefinedProductAttributeValueModel {
             ProductAttributeId = productAttributeId
@@ -264,6 +318,9 @@ public class ProductAttributeController : BaseAdminController
         if (productAttribute == null)
             throw new ArgumentException("No product attribute found with the specified id");
 
+        if (!productAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
+            return View("AccessDenied", _translationService.GetResource("Admin.Catalog.ProductAttribute.Permissions"));
+
         if (ModelState.IsValid)
         {
             var ppav = model.ToEntity();
@@ -280,8 +337,12 @@ public class ProductAttributeController : BaseAdminController
     [PermissionAuthorizeAction(PermissionActionName.Edit)]
     public async Task<IActionResult> PredefinedProductAttributeValueEditPopup(string id, string productAttributeId)
     {
-        var ppav = (await _productAttributeService.GetProductAttributeById(productAttributeId))
-            .PredefinedProductAttributeValues.FirstOrDefault(x => x.Id == id);
+        var productAttribute = await _productAttributeService.GetProductAttributeById(productAttributeId);
+
+        if (!CheckAccessPermission(productAttribute))
+            return View("AccessDenied", _translationService.GetResource("Admin.Catalog.ProductAttribute.Permissions"));
+
+        var ppav = productAttribute.PredefinedProductAttributeValues.FirstOrDefault(x => x.Id == id);
         if (ppav == null)
             throw new ArgumentException("No product attribute value found with the specified id");
 
@@ -300,6 +361,10 @@ public class ProductAttributeController : BaseAdminController
         PredefinedProductAttributeValueModel model)
     {
         var productAttribute = await _productAttributeService.GetProductAttributeById(model.ProductAttributeId);
+
+        if (!productAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
+            return View("AccessDenied", _translationService.GetResource("Admin.Catalog.ProductAttribute.Permissions"));
+
         var ppav = productAttribute.PredefinedProductAttributeValues.FirstOrDefault(x => x.Id == model.Id);
         if (ppav == null)
             throw new ArgumentException("No product attribute value found with the specified id");
@@ -320,12 +385,18 @@ public class ProductAttributeController : BaseAdminController
     [HttpPost]
     public async Task<IActionResult> PredefinedProductAttributeValueDelete(string id)
     {
+        var productAttributes = await _productAttributeService.GetAllProductAttributes(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId);
+        var productAttribute = productAttributes.FirstOrDefault(x => x.PredefinedProductAttributeValues.Any(p => p.Id == id));
+
+        if (productAttribute == null)
+            throw new ArgumentException("No product attribute found with the specified id");
+
+        if (!productAttribute.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
+            return View("AccessDenied", _translationService.GetResource("Admin.Catalog.ProductAttribute.Permissions"));
+
         if (ModelState.IsValid)
         {
-            var productAttribute =
-                (await _productAttributeService.GetAllProductAttributes()).FirstOrDefault(x =>
-                    x.PredefinedProductAttributeValues.Any(y => y.Id == id));
-            var ppav = productAttribute?.PredefinedProductAttributeValues.FirstOrDefault(x => x.Id == id);
+            var ppav = productAttribute.PredefinedProductAttributeValues.FirstOrDefault(x => x.Id == id);
             if (ppav == null)
                 throw new ArgumentException("No predefined product attribute value found with the specified id");
             productAttribute.PredefinedProductAttributeValues.Remove(ppav);

@@ -1,8 +1,6 @@
 ﻿using Grand.Business.Core.Extensions;
 using Grand.Business.Core.Interfaces.Catalog.Categories;
-using Grand.Business.Core.Interfaces.Common.Directory;
 using Grand.Business.Core.Interfaces.Common.Localization;
-using Grand.Domain.Catalog;
 using Grand.Domain.Permissions;
 using Grand.Infrastructure;
 using Grand.Web.AdminShared.Extensions;
@@ -28,7 +26,6 @@ public class CategoryController : BaseStoreController
         ILanguageService languageService,
         ITranslationService translationService,
         IContextAccessor contextAccessor,
-        IGroupService groupService,
         IPictureViewModelService pictureViewModelService)
     {
         _categoryService = categoryService;
@@ -36,22 +33,7 @@ public class CategoryController : BaseStoreController
         _languageService = languageService;
         _translationService = translationService;
         _contextAccessor = contextAccessor;
-        _groupService = groupService;
         _pictureViewModelService = pictureViewModelService;
-    }
-
-    #endregion
-
-    #region Utilities
-
-    protected async Task<(bool allow, string message)> CheckAccessToCategory(Category category)
-    {
-        if (category == null) return (false, "Category not exists");
-        if (await _groupService.IsStoreManager(_contextAccessor.WorkContext.CurrentCustomer))
-            if (!(!category.LimitedToStores || (category.Stores.Contains(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId) &&
-                                                category.LimitedToStores)))
-                return (false, "This is not your category");
-        return (true, null);
     }
 
     #endregion
@@ -63,7 +45,6 @@ public class CategoryController : BaseStoreController
     private readonly ILanguageService _languageService;
     private readonly ITranslationService _translationService;
     private readonly IContextAccessor _contextAccessor;
-    private readonly IGroupService _groupService;
     private readonly IPictureViewModelService _pictureViewModelService;
 
     #endregion
@@ -279,6 +260,7 @@ public class CategoryController : BaseStoreController
     public async Task<IActionResult> ProductList(DataSourceRequest command, string categoryId)
     {
         var category = await _categoryService.GetCategoryById(categoryId);
+
         if (!category.AccessToEntityByStore(_contextAccessor.WorkContext.CurrentCustomer.StaffStoreId))
             return ErrorForKendoGridJson("This is not your category");
 

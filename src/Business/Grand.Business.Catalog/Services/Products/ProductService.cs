@@ -150,8 +150,8 @@ public class ProductService : IProductService
         int pageSize = int.MaxValue)
     {
         var query = from c in _productRepository.Table
-            where c.AppliedDiscounts.Any(x => x == discountId)
-            select c;
+                    where c.AppliedDiscounts.Any(x => x == discountId)
+                    select c;
 
         return await PagedList<Product>.Create(query, pageIndex, pageSize);
     }
@@ -422,7 +422,7 @@ public class ProductService : IProductService
             categoryIds.Remove("");
 
         var query = from p in _productRepository.Table
-            select p;
+                    select p;
 
         query = query.Where(p => p.Published && p.VisibleIndividually);
 
@@ -435,15 +435,15 @@ public class ProductService : IProductService
             //ACL (access control list)
             var allowedCustomerGroupsIds = customer.GetCustomerGroupIds();
             query = from p in query
-                where !p.LimitedToGroups || allowedCustomerGroupsIds.Any(x => p.CustomerGroups.Contains(x))
-                select p;
+                    where !p.LimitedToGroups || allowedCustomerGroupsIds.Any(x => p.CustomerGroups.Contains(x))
+                    select p;
         }
 
         if (!string.IsNullOrEmpty(storeId) && !ignoreStore)
             //Limited to stores rules
             query = from p in query
-                where !p.LimitedToStores || p.Stores.Contains(storeId)
-                select p;
+                    where !p.LimitedToStores || p.Stores.Contains(storeId)
+                    select p;
 
         return Convert.ToInt32(query.Count());
     }
@@ -561,15 +561,20 @@ public class ProductService : IProductService
     ///     Gets products by product attribute
     /// </summary>
     /// <param name="productAttributeId">Product attribute identifier</param>
+    /// <param name="storeId">Store ident</param>
     /// <param name="pageIndex">Page index</param>
     /// <param name="pageSize">Page size</param>
     /// <returns>Products</returns>
-    public virtual async Task<IPagedList<Product>> GetProductsByProductAttributeId(string productAttributeId,
+    public virtual async Task<IPagedList<Product>> GetProductsByProductAttributeId(string productAttributeId, string storeId = "",
         int pageIndex = 0, int pageSize = int.MaxValue)
     {
         var query = from p in _productRepository.Table
-            select p;
+                    select p;
         query = query.Where(x => x.ProductAttributeMappings.Any(y => y.ProductAttributeId == productAttributeId));
+
+        if (!string.IsNullOrEmpty(storeId))
+            query = query.Where(x => x.LimitedToStores || x.Stores.Contains(storeId));
+
         query = query.OrderBy(x => x.Name);
 
         return await PagedList<Product>.Create(query, pageIndex, pageSize);
@@ -587,7 +592,7 @@ public class ProductService : IProductService
         string storeId = "", string vendorId = "", bool showHidden = false)
     {
         var query = from p in _productRepository.Table
-            select p;
+                    select p;
 
         query = query.Where(p => p.ParentGroupedProductId == parentGroupedProductId);
 

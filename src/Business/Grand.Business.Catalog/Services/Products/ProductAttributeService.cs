@@ -4,7 +4,9 @@ using Grand.Domain;
 using Grand.Domain.Catalog;
 using Grand.Infrastructure.Caching;
 using Grand.Infrastructure.Caching.Constants;
+using Grand.Infrastructure.Configuration;
 using Grand.Infrastructure.Extensions;
+using LiteDB;
 using MediatR;
 
 namespace Grand.Business.Catalog.Services.Products;
@@ -42,7 +44,7 @@ public class ProductAttributeService : IProductAttributeService
     private readonly IRepository<Product> _productRepository;
     private readonly IMediator _mediator;
     private readonly ICacheBase _cacheBase;
-
+    
     #endregion
 
     #region Methods
@@ -52,20 +54,31 @@ public class ProductAttributeService : IProductAttributeService
     /// <summary>
     ///     Gets all product attributes
     /// </summary>
+    /// <param name="storeId">Store ident</param>
     /// <param name="pageIndex">Page index</param>
     /// <param name="pageSize">Page size</param>
     /// <returns>Product attributes</returns>
-    public virtual async Task<IPagedList<ProductAttribute>> GetAllProductAttributes(int pageIndex = 0,
+    public virtual async Task<IPagedList<ProductAttribute>> GetAllProductAttributes(string storeId = "", int pageIndex = 0,
         int pageSize = int.MaxValue)
     {
-        var key = string.Format(CacheKey.PRODUCTATTRIBUTES_ALL_KEY, pageIndex, pageSize);
+        var key = string.Format(CacheKey.PRODUCTATTRIBUTES_ALL_KEY, storeId, pageIndex, pageSize);
         return await _cacheBase.GetAsync(key, () =>
         {
             var query = from pa in _productAttributeRepository.Table
-                orderby pa.Name
                 select pa;
+
+            if (!string.IsNullOrEmpty(storeId))
+                //Limited to stores rules
+                query = from p in query
+                        where !p.LimitedToStores || p.Stores.Contains(storeId)
+                        select p;
+
+            query = query.OrderBy(pa => pa.Name);
+
             return Task.FromResult(new PagedList<ProductAttribute>(query, pageIndex, pageSize));
         });
+
+        
     }
 
     /// <summary>
