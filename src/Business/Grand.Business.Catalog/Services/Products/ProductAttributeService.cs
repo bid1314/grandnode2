@@ -6,7 +6,6 @@ using Grand.Infrastructure.Caching;
 using Grand.Infrastructure.Caching.Constants;
 using Grand.Infrastructure.Configuration;
 using Grand.Infrastructure.Extensions;
-using LiteDB;
 using MediatR;
 
 namespace Grand.Business.Catalog.Services.Products;
